@@ -32,6 +32,6 @@ anyhow = "1.0.90"
 tempfile = "3.10.1"
 http-serde = "2.1.1"
 http = "1.1.0"
-
+awc = "3.5.1"
 
 libnixstore = { path = "../libnixstore" }

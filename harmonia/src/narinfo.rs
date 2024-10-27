@@ -196,7 +196,50 @@ pub(crate) async fn get(
                 {
                     Ok(response) => {
                         if response.status() == http::StatusCode::OK {
-                            eprintln!("Make successfull request: {response:?}")
+                            let headers = response.headers();
+
+                            // validate ct
+                            let ct = match headers.get(http::header::CONTENT_TYPE) {
+                                Some(ct) => match ct.to_str() {
+                                    Ok(ct) => {
+                                        if ct == "text/x-nix-narinfo" {
+                                            ct
+                                        } else {
+                                            eprintln!(
+                                                "Received invalid content-type from upstream"
+                                            );
+
+                                            continue;
+                                        }
+                                    }
+                                    Err(..) => {
+                                        eprintln!("Received invalid content-type from upstream");
+
+                                        continue;
+                                    }
+                                },
+                                None => {
+                                    eprintln!("Received invalid content-type from upstream");
+
+                                    continue;
+                                }
+                            };
+
+                            // fetch nix-link
+                            let nix_link = match headers.get("Nix-Link") {
+                                Some(nl) => nl,
+                                None => {
+                                    eprintln!("missing nix-link header");
+
+                                    continue;
+                                }
+                            };
+
+                            return Ok(HttpResponse::Ok()
+                                .insert_header(cache_control_max_age_1d())
+                                .insert_header((http::header::CONTENT_TYPE, ct))
+                                .insert_header(("Nix-Link", nix_link))
+                                .streaming(response));
                         } else {
                             eprintln!("Failed to make cache reqest: {response:?}");
                         }

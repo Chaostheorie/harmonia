@@ -30,7 +30,7 @@ askama_escape = "0.10.3"
 percent-encoding = "2.3.1"
 anyhow = "1.0.90"
 tempfile = "3.10.1"
-http_serde = "2.1.1"
+http-serde = "2.1.1"
 http = "1.1.0"
 
 

@@ -30,7 +30,7 @@ fn default_upstreams() -> Vec<UpstreamCache> {
 
 #[derive(Deserialize, Debug)]
 pub(crate) struct UpstreamCache {
-    #[serde(default = "upstream_url", with = "http_serde::uri")]
+    #[serde(with = "http_serde::uri")]
     pub(crate) url: Uri,
 }
 

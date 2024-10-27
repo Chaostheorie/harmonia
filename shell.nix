@@ -4,6 +4,7 @@
   boost ? pkgs.boost,
   clippy ? pkgs.clippy,
   lib ? pkgs.lib,
+  cargo-watch ? pkgs.cargo-watch,
   libiconv ? pkgs.libiconv,
   libsodium ? pkgs.libsodium,
   nixVersions ? pkgs.nixVersions,
@@ -27,6 +28,7 @@ pkgs.mkShell {
     libsodium
     boost
     rustfmt
+    cargo-watch
     clippy
     openssl
     rust-analyzer

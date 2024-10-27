@@ -3,6 +3,7 @@ use std::fs::read_to_string;
 use crate::store::Store;
 use anyhow::{Context, Result};
 use base64::{engine::general_purpose, Engine};
+use http::Uri;
 use serde::Deserialize;
 
 fn default_bind() -> String {
@@ -19,6 +20,18 @@ fn default_connection_rate() -> usize {
 
 fn default_priority() -> usize {
     30
+}
+
+fn default_upstreams() -> Vec<UpstreamCache> {
+    vec![UpstreamCache {
+        url: "https://cache.nixos.org".parse::<Uri>().unwrap(),
+    }]
+}
+
+#[derive(Deserialize, Debug)]
+pub(crate) struct UpstreamCache {
+    #[serde(default = "upstream_url", with = "http_serde::uri")]
+    pub(crate) url: Uri,
 }
 
 // TODO(conni2461): users to restrict access
@@ -45,6 +58,8 @@ pub(crate) struct Config {
     pub(crate) secret_keys: Vec<String>,
     #[serde(skip)]
     pub(crate) store: Store,
+    #[serde(default = "default_upstreams")]
+    pub(crate) upstreams: Vec<UpstreamCache>,
 }
 
 fn get_secret_key(sign_key_path: Option<&str>) -> Result<Option<String>> {

@@ -1,10 +1,9 @@
-use std::fs::read_to_string;
-
 use crate::store::Store;
+use actix_web::http::Uri;
 use anyhow::{Context, Result};
 use base64::{engine::general_purpose, Engine};
-use http::Uri;
 use serde::Deserialize;
+use std::fs::read_to_string;
 
 fn default_bind() -> String {
     "[::]:5000".into()

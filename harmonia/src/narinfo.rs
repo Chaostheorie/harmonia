@@ -1,8 +1,12 @@
-use std::{error::Error, path::Path};
-
+use actix_web::http::uri::PathAndQuery;
+use actix_web::http::Uri;
 use actix_web::{http, web, HttpResponse};
+use awc::Client;
 use libnixstore::Radix;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
+use std::{error::Error, path::Path};
+use tokio_stream::StreamExt;
 
 use crate::config::Config;
 use crate::{cache_control_max_age_1d, nixhash, some_or_404};
@@ -165,8 +169,49 @@ pub(crate) async fn get(
     settings: web::Data<Config>,
 ) -> Result<HttpResponse, Box<dyn Error>> {
     let hash = hash.into_inner();
-    let store_path = some_or_404!(nixhash(&hash));
-    let narinfo = query_narinfo(&store_path, &hash, &settings.secret_keys)?;
+
+    // first, request from store
+
+    let narinfo = match nixhash(&hash) {
+        Some(store_path) => query_narinfo(&store_path, &hash, &settings.secret_keys)?,
+        None => {
+            for upstream in &settings.upstreams {
+                println!("Upstream {upstream:?}");
+                let mut uri = upstream.url.clone().into_parts();
+                uri.path_and_query = Some(uri.path_and_query.map_or(
+                    format!("/{hash}.narinfo").parse::<PathAndQuery>().unwrap(),
+                    |url| {
+                        format!("{}/{}.narinfo", url.path(), hash)
+                            .parse::<PathAndQuery>()
+                            .unwrap()
+                    },
+                ));
+
+                match Client::new()
+                    .request(http::Method::GET, Uri::try_from(uri).unwrap())
+                    .timeout(Duration::from_secs(5))
+                    .no_decompress()
+                    .send()
+                    .await
+                {
+                    Ok(response) => {
+                        if response.status() == http::StatusCode::OK {
+                            eprintln!("Make successfull request: {response:?}")
+                        } else {
+                            eprintln!("Failed to make cache reqest: {response:?}");
+                        }
+                    }
+                    Err(err) => {
+                        eprintln!("Failed to construct cache reqest: {err:?}")
+                    }
+                }
+            }
+
+            return Ok(HttpResponse::NotFound()
+                .insert_header(crate::cache_control_no_store())
+                .body("unimp"));
+        }
+    };
 
     if param.json.is_some() {
         Ok(HttpResponse::Ok()

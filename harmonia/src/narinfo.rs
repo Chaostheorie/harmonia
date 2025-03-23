@@ -1,6 +1,7 @@
 use actix_web::http::uri::PathAndQuery;
 use actix_web::http::Uri;
 use actix_web::{http, web, HttpResponse};
+use awc::error::HeaderValue;
 use awc::Client;
 use libnixstore::Radix;
 use serde::{Deserialize, Serialize};
@@ -175,6 +176,9 @@ pub(crate) async fn get(
     let narinfo = match nixhash(&hash) {
         Some(store_path) => query_narinfo(&store_path, &hash, &settings.secret_keys)?,
         None => {
+            let header_narinfo = HeaderValue::from_str("text/x-nix-narinfo")
+                .expect("narinfo conversion failed for header");
+
             for upstream in &settings.upstreams {
                 println!("Upstream {upstream:?}");
 
@@ -191,31 +195,17 @@ pub(crate) async fn get(
                 {
                     Ok(response) => {
                         if response.status() == http::StatusCode::OK {
-                            let headers = response.headers();
-
                             // validate ct
-                            let ct = match headers.get(http::header::CONTENT_TYPE) {
-                                Some(ct) => match ct.to_str() {
-                                    Ok(ct) => {
-                                        if ct == "text/x-nix-narinfo" {
-                                            ct
-                                        } else {
-                                            eprintln!(
-                                                "Received invalid content-type from upstream"
-                                            );
-
-                                            continue;
-                                        }
-                                    }
-                                    Err(..) => {
+                            let ct = match response.headers().get(http::header::CONTENT_TYPE) {
+                                Some(ct) => match ct == header_narinfo {
+                                    true => ct,
+                                    false => {
                                         eprintln!("Received invalid content-type from upstream");
-
                                         continue;
                                     }
                                 },
                                 None => {
                                     eprintln!("Received invalid content-type from upstream");
-
                                     continue;
                                 }
                             };

@@ -177,18 +177,13 @@ pub(crate) async fn get(
         None => {
             for upstream in &settings.upstreams {
                 println!("Upstream {upstream:?}");
-                let mut uri = upstream.url.clone().into_parts();
-                uri.path_and_query = Some(uri.path_and_query.map_or(
-                    format!("/{hash}.narinfo").parse::<PathAndQuery>().unwrap(),
-                    |url| {
-                        format!("{}/{}.narinfo", url.path(), hash)
-                            .parse::<PathAndQuery>()
-                            .unwrap()
-                    },
-                ));
 
+                let mut uri_parts = upstream.url.clone().into_parts();
+                uri_parts.path_and_query =
+                    Some(format!("/{hash}.narinfo").parse::<PathAndQuery>()?);
+                let uri = Uri::try_from(uri_parts)?;
                 match Client::new()
-                    .request(http::Method::GET, Uri::try_from(uri).unwrap())
+                    .request(http::Method::GET, uri)
                     .timeout(Duration::from_secs(5))
                     .no_decompress()
                     .send()

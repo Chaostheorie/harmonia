@@ -237,7 +237,7 @@ pub(crate) async fn get(
 
             return Ok(HttpResponse::NotFound()
                 .insert_header(crate::cache_control_no_store())
-                .body("unimp"));
+                .body("missed hash"));
         }
     };
 

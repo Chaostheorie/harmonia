@@ -1,3 +1,5 @@
+use crate::config::Config;
+use crate::{cache_control_max_age_1d, nixhash};
 use actix_web::http::uri::PathAndQuery;
 use actix_web::http::Uri;
 use actix_web::{http, web, HttpResponse};
@@ -171,86 +173,85 @@ pub(crate) async fn get(
 ) -> Result<HttpResponse, Box<dyn Error>> {
     let hash = hash.into_inner();
 
-    // first, request from store
+    if let Some(store_path) = nixhash(&hash) {
+        let narinfo = query_narinfo(&store_path, &hash, &settings.secret_keys)?;
+        if param.json.is_some() {
+            return Ok(HttpResponse::Ok()
+                .insert_header(cache_control_max_age_1d())
+                .json(narinfo));
+        } else {
+            let res = format_narinfo_txt(&narinfo);
+            return Ok(HttpResponse::Ok()
+                .insert_header((http::header::CONTENT_TYPE, "text/x-nix-narinfo"))
+                .insert_header(("Nix-Link", narinfo.url))
+                .insert_header(cache_control_max_age_1d())
+                .body(res));
+        }
+    }
 
-    let narinfo = match nixhash(&hash) {
-        Some(store_path) => query_narinfo(&store_path, &hash, &settings.secret_keys)?,
-        None => {
-            let header_narinfo = HeaderValue::from_str("text/x-nix-narinfo")
-                .expect("narinfo conversion failed for header");
+    let header_narinfo =
+        HeaderValue::from_str("text/x-nix-narinfo").expect("narinfo conversion failed for header");
 
-            for upstream in &settings.upstreams {
-                println!("Upstream {upstream:?}");
+    for upstream in &settings.upstreams {
+        println!("Upstream {upstream:?}");
 
-                let mut uri_parts = upstream.url.clone().into_parts();
-                uri_parts.path_and_query =
-                    Some(format!("/{hash}.narinfo").parse::<PathAndQuery>()?);
-                let uri = Uri::try_from(uri_parts)?;
-                match Client::new()
-                    .request(http::Method::GET, uri)
-                    .timeout(Duration::from_secs(5))
-                    .no_decompress()
-                    .send()
-                    .await
-                {
-                    Ok(response) => {
-                        if response.status() == http::StatusCode::OK {
-                            // validate ct
-                            let ct = match response.headers().get(http::header::CONTENT_TYPE) {
-                                Some(ct) => match ct == header_narinfo {
-                                    true => ct,
-                                    false => {
-                                        eprintln!("Received invalid content-type from upstream");
-                                        continue;
-                                    }
-                                },
-                                None => {
-                                    eprintln!("Received invalid content-type from upstream");
-                                    continue;
-                                }
-                            };
+        let mut uri_parts = upstream.url.clone().into_parts();
+        uri_parts.path_and_query = Some(format!("/{hash}.narinfo").parse::<PathAndQuery>()?);
+        let uri = Uri::try_from(uri_parts)?;
 
-                            // fetch nix-link
-                            let nix_link = match headers.get("Nix-Link") {
-                                Some(nl) => nl,
-                                None => {
-                                    eprintln!("missing nix-link header");
+        // TODO: connection pooling
+        match Client::new()
+            .request(http::Method::GET, uri)
+            .timeout(Duration::from_secs(5))
+            .no_decompress()
+            .send()
+            .await
+        {
+            Ok(response) => {
+                if response.status() == http::StatusCode::OK {
+                    // validate ct
+                    let ct = match response.headers().get(http::header::CONTENT_TYPE) {
+                        Some(ct) => match ct == header_narinfo {
+                            true => ct,
+                            false => {
+                                eprintln!("Received invalid content-type from upstream");
+                                continue;
+                            }
+                        },
+                        None => {
+                            eprintln!("Received invalid content-type from upstream");
+                            continue;
+                        }
+                    };
 
-                                    continue;
-                                }
-                            };
-
+                    // TODO: deserilize to json?
+                    match param.json.is_some() {
+                        true => {
+                            eprint!("Not implemented rewriting this in json");
+                            continue;
+                        }
+                        false => {
+                            // NOTE(cobalt): We cannot verify if we stream this...; if the client has all the upstream caches we use set up as well, this should not be a problem, ergo we dont need to resign
                             return Ok(HttpResponse::Ok()
                                 .insert_header(cache_control_max_age_1d())
                                 .insert_header((http::header::CONTENT_TYPE, ct))
-                                .insert_header(("Nix-Link", nix_link))
+                                // .insert_header(("Nix-Link", nix_link))
                                 .streaming(response));
-                        } else {
-                            eprintln!("Failed to make cache reqest: {response:?}");
                         }
                     }
-                    Err(err) => {
-                        eprintln!("Failed to construct cache reqest: {err:?}")
-                    }
+                } else {
+                    eprintln!("Failed to make cache reqest: {response:?}");
+                    continue;
                 }
             }
-
-            return Ok(HttpResponse::NotFound()
-                .insert_header(crate::cache_control_no_store())
-                .body("missed hash"));
+            Err(err) => {
+                eprintln!("Failed to construct cache reqest: {err:?}");
+                continue;
+            }
         }
-    };
-
-    if param.json.is_some() {
-        Ok(HttpResponse::Ok()
-            .insert_header(cache_control_max_age_1d())
-            .json(narinfo))
-    } else {
-        let res = format_narinfo_txt(&narinfo);
-        Ok(HttpResponse::Ok()
-            .insert_header((http::header::CONTENT_TYPE, "text/x-nix-narinfo"))
-            .insert_header(("Nix-Link", narinfo.url))
-            .insert_header(cache_control_max_age_1d())
-            .body(res))
     }
+
+    Ok(HttpResponse::NotFound()
+        .insert_header(crate::cache_control_no_store())
+        .body("missed hash"))
 }
